@@ -6,6 +6,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Gma.System.MouseKeyHook;
 using System.Collections.Generic;
+using System.Drawing.Drawing2D;
 
 namespace ScreenshotToTrayApp
 {
@@ -51,6 +52,13 @@ namespace ScreenshotToTrayApp
                         config[parts[0].Trim()] = parts[1].Trim();
                     }
                 }
+
+                // Ensure the UpscaleFactor exists and is a valid integer
+                if (!config.ContainsKey("UpscaleFactor") || !int.TryParse(config["UpscaleFactor"], out _))
+                {
+                    throw new Exception("Invalid or missing UpscaleFactor in configuration.");
+                }
+
                 return config;
             }
             catch (Exception ex)
@@ -59,6 +67,8 @@ namespace ScreenshotToTrayApp
                 return null;
             }
         }
+
+       
     }
 
     public class TrayApplicationContext : ApplicationContext
@@ -75,42 +85,43 @@ namespace ScreenshotToTrayApp
                 Icon = SystemIcons.Application,
                 ContextMenu = new ContextMenu(new MenuItem[]
                 {
-                    new MenuItem("Сделать скриншот", TakeScreenshot),
                     new MenuItem("Выход", Exit)
                 }),
                 Visible = true
             };
 
-            MessageBox.Show("Чтобы отправить ВПТ, нажмите кнопку Home.", "Добро пожаловать", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            trayIcon.MouseClick += TrayIcon_MouseClick;
+            MessageBox.Show("Чтобы отправить ВПТ, нажмите кнопку Home или F11. Координаты скриншота задаются в config.txt", "Добро пожаловать", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             globalHook = Hook.GlobalEvents();
             globalHook.KeyDown += GlobalHook_KeyDown;
         }
 
-        private void TrayIcon_MouseClick(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                TakeScreenshot(sender, e);
-            }
-        }
+
 
         private void GlobalHook_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Home)
             {
-                TakeScreenshot(sender, e);
+                int startX = int.Parse(config["HomeStartX"]);
+                int startY = int.Parse(config["HomeStartY"]);
+                int width = int.Parse(config["HomeWidth"]);
+                int height = int.Parse(config["HomeHeight"]);
+
+                TakeScreenshot(startX, startY, width, height);
+            }
+            else if (e.KeyCode == Keys.F11)
+            {
+                int startX = int.Parse(config["F11StartX"]);
+                int startY = int.Parse(config["F11StartY"]);
+                int width = int.Parse(config["F11Width"]);
+                int height = int.Parse(config["F11Height"]);
+
+                TakeScreenshot(startX, startY, width, height);
             }
         }
 
-        private async void TakeScreenshot(object sender, EventArgs e)
+        private async void TakeScreenshot(int startX, int startY, int width, int height)
         {
-            int startX = int.Parse(config["StartX"]);
-            int startY = int.Parse(config["StartY"]);
-            int width = int.Parse(config["Width"]);
-            int height = int.Parse(config["Height"]);
-
             Rectangle bounds = new Rectangle(startX, startY, width, height);
 
             using (Bitmap bitmap = new Bitmap(bounds.Width, bounds.Height))
@@ -120,15 +131,43 @@ namespace ScreenshotToTrayApp
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                 }
 
+                // Draw rounded border
+                DrawRoundedBorder(bitmap, config["BorderColor"], int.Parse(config["BorderThickness"]));
+
                 Clipboard.SetImage(bitmap);
                 ShowPreviewWindow(bitmap);
             }
         }
 
+        private void DrawRoundedBorder(Bitmap bitmap, string colorName, int thickness)
+        {
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                Color color = Color.FromName(colorName);
+                using (Pen pen = new Pen(color, thickness))
+                {
+                    int radius = 50; // Adjust the radius of the corners
+                                     // Create the path for rounded rectangle
+                    System.Drawing.Drawing2D.GraphicsPath path = new System.Drawing.Drawing2D.GraphicsPath();
+                    path.AddArc(0, 0, radius, radius, 180, 90);
+                    path.AddArc(bitmap.Width - radius, 0, radius, radius, 270, 90);
+                    path.AddArc(bitmap.Width - radius, bitmap.Height - radius, radius, radius, 0, 90);
+                    path.AddArc(0, bitmap.Height - radius, radius, radius, 90, 90);
+                    path.CloseFigure();
+
+                    // Draw the border
+                    g.DrawPath(pen, path);
+                }
+            }
+        }
+
         private Bitmap UpscaleImage(Bitmap original)
         {
-            int newWidth = original.Width * 2;
-            int newHeight = original.Height * 2;
+            // Read the upscale factor from config
+            int upscaleFactor = int.Parse(config["UpscaleFactor"]);
+
+            int newWidth = original.Width * upscaleFactor;
+            int newHeight = original.Height * upscaleFactor;
 
             Bitmap upscaled = new Bitmap(newWidth, newHeight);
 
@@ -140,9 +179,11 @@ namespace ScreenshotToTrayApp
 
             return upscaled;
         }
-
         private void ShowPreviewWindow(Bitmap screenshot)
         {
+            // Add the rounded border to the screenshot
+            Bitmap borderedScreenshot = screenshot; // Adjust thickness and color as needed
+
             Form previewForm = new Form
             {
                 Text = "Скриншот",
@@ -177,28 +218,23 @@ namespace ScreenshotToTrayApp
             Button groupProgramsButton = new Button { Text = "Групповые программы", Width = 170, Height = 40 };
             Button gymButton = new Button { Text = "Тренажерный зал", Width = 170, Height = 40 };
             Button aquaZoneButton = new Button { Text = "Аква-зона", Width = 170, Height = 40 };
-            Button ftButton = new Button { Text = "ФТ", Width = 80, Height = 40 }; // New "ФТ" button
             Button closeButton = new Button { Text = "Закрыть", Width = 120, Height = 40 };
 
+            // Button click event handlers (same as before)
             groupProgramsButton.Click += (s, e) =>
             {
-                SendImageToTelegram(config["GroupProgramsTelegram"] + " ВПТ ГП\nКомментарий: " + commentBox.Text, screenshot);
+                SendImageToTelegram(config["GroupProgramsTelegram"] + " ВПТ ГП\nКомментарий: " + commentBox.Text, borderedScreenshot);
                 groupProgramsButton.Enabled = false;
             };
             gymButton.Click += (s, e) =>
             {
-                SendImageToTelegram(config["GymTelegram"] + " ВПТ ТЗ\nКомментарий: " + commentBox.Text, screenshot);
+                SendImageToTelegram(config["GymTelegram"] + " ВПТ ТЗ\nКомментарий: " + commentBox.Text, borderedScreenshot);
                 gymButton.Enabled = false;
             };
             aquaZoneButton.Click += (s, e) =>
             {
-                SendImageToTelegram(config["AquaZoneTelegram"] + " ВПТ Аква\nКомментарий: " + commentBox.Text, screenshot);
+                SendImageToTelegram(config["AquaZoneTelegram"] + " ВПТ Аква\nКомментарий: " + commentBox.Text, borderedScreenshot);
                 aquaZoneButton.Enabled = false;
-            };
-            ftButton.Click += (s, e) =>
-            {
-                SendImageToTelegram(config["FTTelegram"] + " ФТ\nКомментарий: " + commentBox.Text, screenshot);
-                ftButton.Enabled = false;
             };
             closeButton.Click += (s, e) => { previewForm.Close(); };
 
@@ -206,7 +242,6 @@ namespace ScreenshotToTrayApp
             buttonPanel.Controls.Add(aquaZoneButton);
             buttonPanel.Controls.Add(gymButton);
             buttonPanel.Controls.Add(groupProgramsButton);
-            buttonPanel.Controls.Add(ftButton); // Add "ФТ" button before "Закрыть"
             buttonPanel.Controls.Add(closeButton);
 
             previewForm.Controls.Add(commentBox);
