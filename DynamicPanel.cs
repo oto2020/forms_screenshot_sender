@@ -1,9 +1,11 @@
-﻿using System;
+﻿// DynamicPanel.cs
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using forms_screenshot_sender;
 using MySql.Data.MySqlClient;
 
 public class DynamicPanel : UserControl
@@ -57,43 +59,7 @@ public class DynamicPanel : UserControl
 
     private void LoadDataFromDatabase()
     {
-        objects = new List<MyObject>();
-
-        try
-        {
-            using (var connection = new MySqlConnection(connectionString))
-            {
-                connection.Open();
-
-                // Пример запроса (не забудьте, что в таблице должно быть chatId)
-                string query = "SELECT name, chatId, vpt_list FROM User";
-
-                using (var command = new MySqlCommand(query, connection))
-                using (var reader = command.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        string name = reader["name"].ToString();
-                        string vptList = reader["vpt_list"].ToString();
-                        string chatId = reader["chatId"].ToString();
-
-                        objects.Add(new MyObject
-                        {
-                            Name = name,
-                            chatId = chatId,
-                            Departments = vptList
-                                .Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries)
-                                .ToList()
-                        });
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Error loading data from database: {ex.Message}",
-                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        objects = DatabaseHelper.GetUsersFromDatabase();
     }
 
     public FlowLayoutPanel GetMainPanel()
@@ -157,48 +123,95 @@ public class DynamicPanel : UserControl
             this.SetStyle(ControlStyles.AllPaintingInWmPaint, true);
             this.UpdateStyles();
         }
+
+        // Для правильного расчета размеров при AutoSize
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            return base.GetPreferredSize(new Size(Width, 0));
+        }
     }
 
     private void UpdateButtons(string filter)
     {
-        // Приостанавливаем лейаут на всех панелях
+        // Приостанавливаем лейаут для всех панелей
+        mainContainer.SuspendLayout();
+
         foreach (var panel in departmentPanels.Values)
+        {
             panel.SuspendLayout();
+        }
 
         try
         {
-            // В каждой панели удаляем все контролы, кроме заголовка (Label)
-            foreach (var kvp in departmentPanels)
-            {
-                var panel = kvp.Value;
-                var header = panel.Controls[0]; // Заголовок — первый контрол
-
-                panel.Controls.Clear();
-                panel.Controls.Add(header);
-            }
-
-            // Фильтрация (без учёта регистра)
+            // Фильтрация объектов
             var filteredObjects = string.IsNullOrWhiteSpace(filter)
                 ? objects
                 : objects.Where(obj =>
                       obj.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                   .ToList();
 
-            // Для каждого объекта создаём кнопки в соответствующих отделах
+            // Создаём HashSet существующих кнопок для повторного использования
+            var existingButtons = new Dictionary<string, Button>();
+
+            // Обновляем список кнопок в панелях
+            foreach (var kvp in departmentPanels)
+            {
+                var panel = kvp.Value;
+                var header = panel.Controls[0]; // Заголовок остается
+
+                // Перебираем кнопки и добавляем их в словарь
+                existingButtons.Clear();
+                for (int i = 1; i < panel.Controls.Count; i++) // Пропускаем первый элемент (заголовок)
+                {
+                    if (panel.Controls[i] is Button button)
+                    {
+                        existingButtons[button.Text] = button;
+                    }
+                }
+
+                // Очищаем панель, кроме заголовка
+                panel.Controls.Clear();
+                panel.Controls.Add(header);
+            }
+
+            // Добавляем только нужные кнопки
             foreach (var obj in filteredObjects)
             {
                 foreach (var department in obj.Departments)
                 {
                     if (departmentPanels.TryGetValue(department, out var panel))
                     {
+                        string buttonText = $"{obj.Name} ({obj.factVptCount}/{obj.wishVptCount})";
+
+                        // Если кнопка уже есть, используем её
+                        if (existingButtons.TryGetValue(buttonText, out var existingButton))
+                        {
+                            panel.Controls.Add(existingButton);
+                            continue;
+                        }
+
+                        // Создаём новую кнопку
                         var button = new Button
                         {
-                            Text = obj.Name,
-                            AutoSize = false,
-                            Size = new Size(180, 40), // под панель 200px
-                            Font = new Font("Segoe UI", 12, FontStyle.Regular),
-                            Tag = obj // Запоминаем объект
+                            Text = buttonText,
+                            Width = 180, // Фиксированная ширина
+                            MinimumSize = new Size(0, 40), // Минимальная высота
+                            Font = new Font("Segoe UI", 10, FontStyle.Regular),
+                            Tag = Tuple.Create(obj, department)
                         };
+
+                        // Устанавливаем высоту кнопки
+                        var textSize = TextRenderer.MeasureText(
+                            button.Text,
+                            button.Font,
+                            new Size(button.Width - button.Padding.Horizontal, int.MaxValue),
+                            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl
+                        );
+
+                        button.Height = Math.Max(
+                            button.MinimumSize.Height,
+                            textSize.Height + button.Padding.Vertical + 20
+                        );
 
                         // Подписка на клик
                         button.Click += Button_Click;
@@ -209,11 +222,18 @@ public class DynamicPanel : UserControl
         }
         finally
         {
-            // Включаем лейаут обратно
+            // Возобновляем лейаут
             foreach (var panel in departmentPanels.Values)
+            {
                 panel.ResumeLayout(true);
+            }
+
+            mainContainer.ResumeLayout(true);
+            this.PerformLayout(); // Форсируем пересчет макета
         }
     }
+
+
 
     private void SearchBox_TextChanged(object sender, EventArgs e)
     {
@@ -224,33 +244,43 @@ public class DynamicPanel : UserControl
     // Метод обработки клика внутри DynamicPanel
     private void Button_Click(object sender, EventArgs e)
     {
-        if (sender is Button btn && btn.Tag is MyObject obj)
+        if (sender is Button btn && btn.Tag is Tuple<MyObject, string> tag)
         {
-            // Вместо MessageBox.Show вызываем СВОЕ событие, передавая MyObject
-            OnObjectClicked(obj);
+            MyObject obj = tag.Item1;
+            string department = tag.Item2;
+
+            // Вызываем событие, передавая объект и отдел
+            OnObjectClicked(obj, department);
         }
     }
 
+
+
     // Поднимаем событие ObjectClicked
-    protected virtual void OnObjectClicked(MyObject obj)
+    protected virtual void OnObjectClicked(MyObject obj, string department)
     {
         // Создаём аргумент события
-        var args = new MyObjectEventArgs { Data = obj };
+        var args = new MyObjectEventArgs { Data = obj, Department = department };
 
         // Вызываем событие, если на него кто-то подписан
         ObjectClicked?.Invoke(this, args);
     }
+
 }
 
 // Класс с данными для события
 public class MyObjectEventArgs : EventArgs
 {
     public MyObject Data { get; set; }
+    public string Department { get; set; } // Добавляем свойство
 }
+
 
 public class MyObject
 {
     public string Name { get; set; }
     public string chatId { get; set; }
+    public int wishVptCount { get; set; }
+    public int factVptCount { get; set; }
     public List<string> Departments { get; set; }
 }

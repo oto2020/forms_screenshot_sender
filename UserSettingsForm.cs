@@ -10,7 +10,8 @@ namespace forms_screenshot_sender
 
         public UserSettingsForm(ScreenshotUser user)
         {
-            user.CheckOrCreateRecord();
+            DatabaseHelper.CheckOrCreateScreenshotUser(user);
+
             // Устанавливаем размеры окна
             this.Width = 400;
             this.Height = 600;

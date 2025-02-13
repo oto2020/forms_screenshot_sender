@@ -60,7 +60,10 @@ namespace ScreenshotToTrayApp
             // Выводим текущие данные на форму или консоль (если нужно)
             //MessageBox.Show($"Unique ID: {screenshotUser.UniqueId}\nSender: {screenshotUser.Sender}");
 
-            //MessageBox.Show("Чтобы отправить ВПТ, нажмите кнопку Home или F11. Координаты скриншота задаются в настройках\nuniqueId: " + screenshotUser.UniqueId, "Добро пожаловать", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Здравствуйте, "+ screenshotUser.Sender + "!\n\nЧтобы отправить ВПТ, нажмите кнопку Home или F11. Координаты скриншота и ваше имя задаются в настройках\n\nВаш uniqueId: " + screenshotUser.UniqueId, "Добро пожаловать", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+
+
 
             globalHook = Hook.GlobalEvents();
             globalHook.KeyDown += GlobalHook_KeyDown;
@@ -137,28 +140,7 @@ namespace ScreenshotToTrayApp
             // Если ни одна кнопка не выбрана, возвращаем пустую строку или сообщение по умолчанию
             return string.Empty;
         }
-        /// <summary>
-        /// Окно предпросмотра: верх — скриншот (50%), низ — всё остальное (50%), 
-        /// ширина 800px, полная высота экрана. 
-        /// В нижней половине:
-        ///   - Панель №1 (по центру): «Комментарий», «Телефон», «Поиск тренера»
-        ///   - Панель №2 (по центру): «Когда клиент может посетить ВПТ» + RadioButton
-        ///   - DynamicPanel (по центру, шириной 700).
-        /// Все они прокручиваются одной общей вертикальной полосой.
-        /// </summary>
-        /// <summary>
-        /// Окно предпросмотра (800px шириной, высота экрана): 
-        ///  - Верх (50%): скриншот + кнопки
-        ///  - Низ (50%): вертикальная прокрутка. 
-        ///    В нижней части есть:
-        ///      1) combinedPanel (горизонтальный блок), в котором side-by-side панель №1 и панель №2
-        ///      2) DynamicPanel (ниже, по центру).
-        /// </summary>
-        /// <summary>
-        /// Окно предпросмотра (800px шириной, высота экрана):
-        ///   Верх (50%): скриншот + кнопки
-        ///   Низ (50%): поля ввода + DynamicPanel
-        /// </summary>
+        
         private void ShowPreviewWindow(Bitmap screenshot, ScreenshotUser screenshotUser)
         {
             // --- Создаём форму ---
@@ -167,7 +149,8 @@ namespace ScreenshotToTrayApp
                 Text = "Скриншот",
                 StartPosition = FormStartPosition.Manual,
                 MaximizeBox = false,
-                MinimizeBox = false
+                MinimizeBox = false,
+                Icon = new Icon(Path.Combine(Application.StartupPath, "app_icon.ico"))
             };
 
             // Задаём ширину 800, высоту = рабочая область экрана
@@ -185,8 +168,8 @@ namespace ScreenshotToTrayApp
                 RowCount = 2,
                 ColumnCount = 1
             };
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 35f));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 65f));
             previewForm.Controls.Add(mainLayout);
 
             // ======================
@@ -343,48 +326,48 @@ namespace ScreenshotToTrayApp
             // ----------------------
             //   DynamicPanel
             // ----------------------
-            string connectionString = "Server=mysql.phys.su;Database=remarks;Uid=igo4ek;Pwd=47sd$k32Geme!666;";
+            string connectionString = "Server=mysql.phys.su;Database=g1_fitness_dir_bot;Uid=igo4ek;Pwd=47sd$k32Geme!666;";
             DynamicPanel dynamicPanel = new DynamicPanel(connectionString);
 
             // Готовим массив радиокнопок, чтобы ValidateInputs знал, какие проверять
             RadioButton[] timeRadios = new RadioButton[] { wholeDayRadio, morningRadio, lunchRadio, eveningRadio };
 
             // Подписываемся на событие ObjectClicked
+            // Подписываемся на событие ObjectClicked
             dynamicPanel.ObjectClicked += (sender, args) =>
             {
-                // СНАЧАЛА проверяем корректность ввода
-                // Используем метод ValidateInputs(TextBox, TextBox, RadioButton[])
-                // Если не пройдёт, просто выходим (return).
                 if (!ValidateInputs(commentBox, phoneBox, timeRadios))
                 {
-                    return; // Прерываем, не отправляем сообщение
+                    return; // Прерываем, если не заполнены поля
                 }
 
-                // Удаляем все пробелы и скобки из номера телефона
-                // phoneBox.Text меняем "на лету"
-                string cleanedPhone = phoneBox.Text
-                    .Replace(" ", "")
-                    .Replace("(", "")
-                    .Replace(")", "");
-
+                string cleanedPhone = phoneBox.Text.Replace(" ", "").Replace("(", "").Replace(")", "");
                 phoneBox.Text = cleanedPhone;
 
-                // Достаем остальные поля
                 string comment = commentBox.Text;
-                string timeSelected = GetSelectedRadioButtonText(panel2); // используем ваш метод GetSelectedRadioButtonText
+                string timeSelected = GetSelectedRadioButtonText(panel2);
+                string goal = args.Department; // Используем переданный department как goal
 
                 // Формируем caption
-                string caption = $"{screenshotUser.Sender}\nКомментарий: {comment}\n📞 {cleanedPhone}\nВремя: {timeSelected}\n";
+                string caption = $"{screenshotUser.Sender}\nОтдел: {goal}\nКомментарий: {comment}\n📞 {cleanedPhone}\nВремя: {timeSelected}\n";
 
                 // Получаем чатID и имя тренера
                 string chatId = args.Data.chatId;
                 string trainerName = args.Data.Name;
 
-                // Отправляем
-                MyTelegram.SendScreenshotAsync(caption, screenshot, chatId);
+                // Сохраняем в БД с переданным goal (department)
+                long vptRequestId = DatabaseHelper.SaveVPTRequestToDatabase(screenshotUser, cleanedPhone, comment, timeSelected, chatId, "", goal);
+
+                // Отправляем скриншот с текстом в Telegram
+                string photoUrl = MyTelegram.SendScreenshotSync(caption, screenshot, chatId, vptRequestId);
+
+                // Обновляем ссылку на фото в БД
+                DatabaseHelper.UpdateVPTRequestPhoto(vptRequestId, photoUrl);
 
                 // Сообщаем пользователю
-                MessageBox.Show($"Клиент передан тренеру {trainerName} ({chatId})");
+                //MessageBox.Show($"Клиент передан тренеру {trainerName} ({chatId})");
+                previewForm.Close();
+
             };
 
             // Добавляем поле поиска DynamicPanel в panel1 (если нужно)
