@@ -133,7 +133,6 @@ public class DynamicPanel : UserControl
 
     private void UpdateButtons(string filter)
     {
-        // Приостанавливаем лейаут для всех панелей
         mainContainer.SuspendLayout();
 
         foreach (var panel in departmentPanels.Values)
@@ -143,87 +142,63 @@ public class DynamicPanel : UserControl
 
         try
         {
-            // Фильтрация объектов
             var filteredObjects = string.IsNullOrWhiteSpace(filter)
                 ? objects
                 : objects.Where(obj =>
                       obj.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                   .ToList();
 
-            // Создаём HashSet существующих кнопок для повторного использования
-            var existingButtons = new Dictionary<string, Button>();
-
-            // Обновляем список кнопок в панелях
             foreach (var kvp in departmentPanels)
             {
                 var panel = kvp.Value;
-                var header = panel.Controls[0]; // Заголовок остается
+                var header = panel.Controls[0];
 
-                // Перебираем кнопки и добавляем их в словарь
-                existingButtons.Clear();
-                for (int i = 1; i < panel.Controls.Count; i++) // Пропускаем первый элемент (заголовок)
-                {
-                    if (panel.Controls[i] is Button button)
-                    {
-                        existingButtons[button.Text] = button;
-                    }
-                }
-
-                // Очищаем панель, кроме заголовка
                 panel.Controls.Clear();
                 panel.Controls.Add(header);
             }
 
-            // Добавляем только нужные кнопки
-            foreach (var obj in filteredObjects)
+            foreach (var department in departmentPanels.Keys)
             {
-                foreach (var department in obj.Departments)
+                var panel = departmentPanels[department];
+
+                var departmentObjects = filteredObjects
+                    .Where(o => o.Departments.Contains(department))
+                    .OrderByDescending(o => o.wishVptCount - o.factVptCount) // Сортируем по нехватке заявок
+                    .ThenBy(o => o.wishVptCount - o.factVptCount <= 0) // Перемещаем тех, кому не требуется заявка, вниз
+                    .ToList();
+
+                foreach (var obj in departmentObjects)
                 {
-                    if (departmentPanels.TryGetValue(department, out var panel))
+                    string buttonText = $"{obj.Name} ({obj.factVptCount}/{obj.wishVptCount})";
+
+                    var button = new Button
                     {
-                        string buttonText = $"{obj.Name} ({obj.factVptCount}/{obj.wishVptCount})";
+                        Text = buttonText,
+                        Width = 180,
+                        MinimumSize = new Size(0, 40),
+                        Font = new Font("Segoe UI", 10, FontStyle.Regular),
+                        Tag = Tuple.Create(obj, department)
+                    };
 
-                        // Если кнопка уже есть, используем её
-                        if (existingButtons.TryGetValue(buttonText, out var existingButton))
-                        {
-                            panel.Controls.Add(existingButton);
-                            continue;
-                        }
+                    var textSize = TextRenderer.MeasureText(
+                        button.Text,
+                        button.Font,
+                        new Size(button.Width - button.Padding.Horizontal, int.MaxValue),
+                        TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl
+                    );
 
-                        // Создаём новую кнопку
-                        var button = new Button
-                        {
-                            Text = buttonText,
-                            Width = 180, // Фиксированная ширина
-                            MinimumSize = new Size(0, 40), // Минимальная высота
-                            Font = new Font("Segoe UI", 10, FontStyle.Regular),
-                            Tag = Tuple.Create(obj, department)
-                        };
+                    button.Height = Math.Max(
+                        button.MinimumSize.Height,
+                        textSize.Height + button.Padding.Vertical + 20
+                    );
 
-                        // Устанавливаем высоту кнопки
-                        var textSize = TextRenderer.MeasureText(
-                            button.Text,
-                            button.Font,
-                            new Size(button.Width - button.Padding.Horizontal, int.MaxValue),
-                            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl
-                        );
-
-                        button.Height = Math.Max(
-                            button.MinimumSize.Height,
-                            textSize.Height + button.Padding.Vertical + 20
-                        );
-
-                        // Подписка на клик
-                        button.Click += Button_Click;
-                        panel.Controls.Add(button);
-                    }
+                    button.Click += Button_Click;
+                    panel.Controls.Add(button);
                 }
             }
-            
         }
         finally
         {
-            // Возобновляем лейаут
             foreach (var panel in departmentPanels.Values)
             {
                 panel.Height = panel.Controls.Count * 63;
@@ -231,7 +206,7 @@ public class DynamicPanel : UserControl
             }
 
             mainContainer.ResumeLayout(true);
-            this.PerformLayout(); // Форсируем пересчет макета
+            this.PerformLayout();
         }
     }
 
