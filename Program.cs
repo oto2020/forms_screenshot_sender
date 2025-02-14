@@ -160,6 +160,7 @@ namespace ScreenshotToTrayApp
             int formLeft = screen.Left + (screen.Width - formWidth) / 2;
             int formTop = screen.Top;
             previewForm.SetBounds(formLeft, formTop, formWidth, formHeight);
+            previewForm.TopMost = true;
 
             // Главная таблица на 2 строки (50% / 50%)
             TableLayoutPanel mainLayout = new TableLayoutPanel
@@ -284,6 +285,17 @@ namespace ScreenshotToTrayApp
 
             Label phoneLabel = new Label { Text = "Телефон:", AutoSize = true };
             TextBox phoneBox = new TextBox { Width = 200, Height = 25 };
+            if (Clipboard.ContainsText())
+            {
+                string clipboardText = Clipboard.GetText();
+                string phonePattern = @"^\+7\s?\(\d{3}\)\s?\d{3}-?\d{2}-?\d{2}$"; // Регулярное выражение для проверки номера
+
+                if (System.Text.RegularExpressions.Regex.IsMatch(clipboardText, phonePattern))
+                {
+                    phoneBox.Text = clipboardText;
+                }
+            }
+
 
             Label searchLabel = new Label { Text = "Поиск тренера:", AutoSize = true };
 

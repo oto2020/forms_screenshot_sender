@@ -219,12 +219,14 @@ public class DynamicPanel : UserControl
                     }
                 }
             }
+            
         }
         finally
         {
             // Возобновляем лейаут
             foreach (var panel in departmentPanels.Values)
             {
+                panel.Height = panel.Controls.Count * 63;
                 panel.ResumeLayout(true);
             }
 
