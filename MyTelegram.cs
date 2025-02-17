@@ -24,75 +24,63 @@ namespace forms_screenshot_sender
             Bitmap upscaledImage = UpscaleImage(image);
 
             using (var client = new HttpClient())
+            using (var memoryStream = new MemoryStream())
             {
-                using (var memoryStream = new MemoryStream())
+                upscaledImage.Save(memoryStream, System.Drawing.Imaging.ImageFormat.Png);
+                memoryStream.Position = 0;
+
+                // 1. Формируем инлайн-клавиатуру
+                var inlineKeyboard = new
                 {
-                    upscaledImage.Save(memoryStream, System.Drawing.Imaging.ImageFormat.Png);
-                    memoryStream.Position = 0;
-
-                    // ✅ Загружаем фото в Telegram и получаем file_id
-                    var form = new MultipartFormDataContent
-            {
-                { new StreamContent(memoryStream), "photo", "screenshot.png" },
-                { new StringContent(chatId), "chat_id" },
-                { new StringContent(caption, Encoding.UTF8), "caption" }
-            };
-
-                    var response = await client.PostAsync($"{_apiUrl}/sendPhoto", form);
-                    string jsonResponse = await response.Content.ReadAsStringAsync();
-
-                    if (!response.IsSuccessStatusCode)
+                    inline_keyboard = new[]
                     {
-                        MessageBox.Show($"Ошибка отправки фото: {jsonResponse}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return null;
-                    }
-
-                    // ✅ Парсим JSON-ответ и получаем `file_id`
-                    JObject json = JObject.Parse(jsonResponse);
-                    string fileId = json["result"]?["photo"]?.Last?["file_id"]?.ToString();
-
-                    if (string.IsNullOrEmpty(fileId))
-                    {
-                        MessageBox.Show("Ошибка получения file_id!", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return null;
-                    }
-
-                    // ✅ Отправляем сообщение с инлайн-кнопками в ОДНОЙ СТРОКЕ
-                    var keyboard = new
-                    {
-                        chat_id = chatId,
-                        photo = fileId,
-                        caption = caption,
-                        reply_markup = new
-                        {
-                            inline_keyboard = new[]
-                            {
-                        new[]
-                        {
-                            new { text = "✅ Беру", callback_data = $"vpt_status@accepted@{vptRequestId}" },
-                            new { text = "❌ Не беру", callback_data = $"vpt_status@rejected@{vptRequestId}" }
-                        }
-                    }
-                        }
-                    };
-
-                    string keyboardJson = JsonConvert.SerializeObject(keyboard);
-                    var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiUrl}/sendPhoto")
-                    {
-                        Content = new StringContent(keyboardJson, Encoding.UTF8, "application/json")
-                    };
-
-                    var keyboardResponse = await client.SendAsync(request);
-                    string keyboardJsonResponse = await keyboardResponse.Content.ReadAsStringAsync();
-
-                    if (!keyboardResponse.IsSuccessStatusCode)
-                    {
-                        MessageBox.Show($"Ошибка отправки клавиатуры: {keyboardJsonResponse}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return null;
-                    }
-
-                    return fileId; // 🔥 Возвращаем `file_id`
+                new[]
+                {
+                    new { text = "✅ Беру", callback_data = $"vpt_status@accepted@{vptRequestId}" },
+                    new { text = "❌ Не беру", callback_data = $"vpt_status@rejected@{vptRequestId}" }
                 }
+            }
+                };
+                // 2. Сериализуем клавиатуру в JSON
+                string inlineKeyboardJson = JsonConvert.SerializeObject(inlineKeyboard);
+
+                // 3. Формируем form-data, сразу добавляя "reply_markup"
+                var form = new MultipartFormDataContent
+                {
+                    { new StreamContent(memoryStream), "photo", "screenshot.png" },
+                    { new StringContent(chatId), "chat_id" },
+                    { new StringContent(caption, Encoding.UTF8), "caption" },
+                    { new StringContent(inlineKeyboardJson, Encoding.UTF8), "reply_markup" }
+                };
+
+                // 4. Делаем один запрос sendPhoto
+                var response = await client.PostAsync($"{_apiUrl}/sendPhoto", form);
+                string jsonResponse = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show($"Ошибка отправки фото: {jsonResponse}",
+                        "Ошибка",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return null;
+                }
+
+                // 5. Парсим ответ, чтобы при необходимости достать file_id
+                JObject json = JObject.Parse(jsonResponse);
+                string fileId = json["result"]?["photo"]?.Last?["file_id"]?.ToString();
+
+                if (string.IsNullOrEmpty(fileId))
+                {
+                    MessageBox.Show("Ошибка получения file_id!",
+                        "Ошибка",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return null;
+                }
+
+                // Возвращаем file_id, если нужно использовать дальше
+                return fileId;
             }
         }
 
